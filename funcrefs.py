@@ -6,6 +6,7 @@ import astropy.visualization as vis
 import matplotlib.pyplot as plt
 import time
 from IPython.display import display, HTML, Image, clear_output
+from textwrap import wrap
 
 class ViewFits:
     
@@ -43,7 +44,7 @@ class ViewFits:
 
             if animation == True:
                 fig, ax = plt.subplots()
-                ax.set_title("\n".join(wrap(file, width = 60)), weight='bold', loc='center')
+                ax.set_title("\n".join(wrap(file, width = 40)), weight='bold', loc='center')
                 ax.imshow(data, cmap=cmap, norm=norm, interpolation=interpolation)
                 plt.tight_layout(pad=0, h_pad=0, w_pad=2)
                 plt.show()
@@ -53,7 +54,7 @@ class ViewFits:
                     clear_output(wait=True)
             else:
                 ax = axs[i // 3, i % 3]
-                ax.set_title("\n".join(wrap(file, width = 60)), weight='bold', loc='center')
+                ax.set_title("\n".join(wrap(file, width = 40)), weight='bold', loc='center')
                 ax.imshow(data, cmap=cmap, norm=norm, interpolation=interpolation)
         
         if animation == False:

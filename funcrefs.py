@@ -27,6 +27,7 @@ class fnrefs:
 
         if animation == False:
             fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
+            axs = axs.ravel()
 
         # ------ START OF FOR LOOP ------
         for i, file in enumerate(files):  # iterating through each file and displaying the image
@@ -67,7 +68,7 @@ class fnrefs:
                     clear_output(wait=True)
             # otherwise will plot as a grid of images, rows and columns specified
             else:
-                ax = axs[i // 3, i % 3]
+                ax = axs[i]
                 ax.set_title("\n".join(wrap(file, width = 40)), weight='bold', loc='center')
                 ax.imshow(data, cmap=cmap, norm=norm, interpolation=interpolation)
             # -------- END OF FOR LOOP --------
@@ -87,9 +88,9 @@ class fnrefs:
         
         stack = np.dstack(stack)
 
-        median = np.median(stack, axis=2)
+        mean = np.mean(stack, axis=2)
 
-        master = fits.PrimaryHDU(median)
+        master = fits.PrimaryHDU(mean)
 
         master.writeto(master_name, overwrite=True)
 

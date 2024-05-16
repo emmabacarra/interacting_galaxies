@@ -2,12 +2,17 @@ import os
 from re import search
 import numpy as np
 from astropy.io import fits
+from astropy.wcs import WCS
+from ccdproc import Combiner
+from astropy.nddata import CCDData
 import astropy.visualization as vis
 import matplotlib.pyplot as plt
 from astropy.nddata import block_reduce, Cutout2D
 import time
 from IPython.display import display, HTML, Image, clear_output
 from textwrap import wrap
+import astropy.units as u
+import warnings
 
 # My Functions -----------------------------------------------------------------------------------
 
@@ -78,24 +83,94 @@ class fnrefs:
             plt.tight_layout(pad=0, h_pad=0.2, w_pad=0.2)
             plt.show()
 
-    # for creating a master stack of fits files
-    def create_master(files, master_name):
-        stack = []
-
-        for file in files:
-            with fits.open(file) as hdul:
-                stack.append(hdul[0].data)
+    # normalizing arrays
+    def normalize(arr, t_min=None, t_max=None):
+        if t_min is None:
+            t_min = np.amin(arr)
+        if t_max is None:
+            t_max = np.amax(arr)
         
-        stack = np.dstack(stack)
+        norm_arr = np.empty(arr.shape, dtype=arr.dtype)
+        diff = t_max - t_min
+        diff_arr = t_max - t_min
 
-        mean = np.mean(stack, axis=2)
+        # np.ndenumerate preserves original array coordinates and values
+        for index, i in np.ndenumerate(arr):  
+            norm_arr[index] = (((i - t_min)*diff)/diff_arr) + t_min
+        # for i in np.nditer(arr):
+        #     temp = (((i - t_min)*diff)/diff_arr) + t_min
+        #     norm_arr.append(temp)
+        return norm_arr
+    
 
-        master = fits.PrimaryHDU(mean)
+    ''' ------------------ creating a stack of fits files ------------------
+    fol_dir: path of folder where files are located (string)
 
-        master.writeto(master_name, overwrite=True)
+    writeto: path name of the file to write the stack to (string)
+    *As default, the combined data is returned as an array if writeto not specified*
+    
+    overwrite: if True, will overwrite the file if it already exists (bool)
+    
+    keyword: optional query to search for particular file names (string), where
+        the default setting is to include all files in the specified directory
 
+    warn: defaulted to 'ignore' to suppress warnings (string)
 
+    normalize: if True, will normalize the data
 
+    1. function will iterate through the files in the directory specified by fol_dir
+    2. if keyword is specified, will only include file names that contain the keyword
+    3. in each iteration, the function will open the file and extract the data and wcs
+    4. the function will then convert the pixel coordinates to world coordinates
+    5. the function will then append the ccd data to an array (outside of the loop)
+    6. the ccd data will be combined using Combiner from ccdproc and median_combine()
+    7. the combined data will be written to a new fits file specified by writeto
+    '''
+    def create_stack(fol_dir, writeto=False, overwrite=False, keyword=False, warn='ignore', normalize = False):
+        with warnings.catch_warnings():
+            warnings.simplefilter(warn) # Hint: set to 'default' to see warnings
+
+            image_data = []
+
+            for file in [f for f in os.listdir(fol_dir) if ( (not keyword) or search(keyword, f) )]:
+                '''
+                loop through files (file) in a list that contains the file names (f) in 
+                the passed directory (file_dir) with an optional keyword to search names
+
+                "or" can be interpreted like "otherwise" here, so if a keyword isn't passed,
+                it will just return the list of all files in fol_dir. otherwise, if a keyword
+                is a non-empty string, it will return the list of files that match the query
+                '''
+                with fits.open(fol_dir + file) as hdul:
+                    data = hdul[0].data
+                    wcs = WCS(hdul[0].header)
+                    
+                    world_coords = wcs.pixel_to_world((data.shape[0], data.shape[1]), 0)
+                    ccd = CCDData(data, unit=u.adu)
+                    
+                    image_data.append(ccd)
+                
+            combined_data = np.asarray( Combiner(image_data).median_combine() )
+            combined_data = np.nan_to_num(combined_data, nan=0) # replaces NaN values with 0
+
+            if (normalize): # executes when not False or some truthy value
+                combined_data = fnrefs.normalize(combined_data)
+
+            # if writeto is specified, will write the combined data to a new fits file
+            if (writeto): # skips execution if writeto = False or some falsy value
+                fits.writeto(str(writeto), combined_data, overwrite=overwrite)
+            else: return combined_data
+
+    # old version
+    # def create_master(files, master_name):
+    #     stack = []
+    #     for file in files:
+    #         with fits.open(file) as hdul:
+    #             stack.append(hdul[0].data)
+    #     stack = np.dstack(stack)
+    #     mean = np.mean(stack, axis=2)
+    #     master = fits.PrimaryHDU(mean)
+    #     master.writeto(master_name, overwrite=True)
 
 
 
@@ -243,7 +318,7 @@ class convenience_functions:
             sub_image = Cutout2D(image, center, width, mode='trim')
         
         # assuming class was imported as cf
-        cf.show_image(sub_image.data, cmap='gray', ax=axis, fig=fig,
+        convenience_functions.show_image(sub_image.data, cmap='gray', ax=axis, fig=fig,
                 show_colorbar=False, show_ticks=False, is_mask=is_mask,
                 **kwargs)
 
@@ -311,15 +386,15 @@ class convenience_functions:
                     # We are not supposed to display this one, so skip it.
                     continue
 
-            x = _mid(s[1])
-            y = _mid(s[0])
+            x = convenience_functions._mid(s[1])
+            y = convenience_functions._mid(s[0])
 
             for column, plot_info in enumerate(zip(images, titles)):
                 image = plot_info[0]
                 title = plot_info[1]
                 is_mask = column == 0
                 ax = axes[display_row, column]
-                image_snippet(image, (x, y), width=80, axis=ax, fig=fig,
+                convenience_functions.image_snippet(image, (x, y), width=80, axis=ax, fig=fig,
                             is_mask=is_mask)
                 if is_mask:
                     ax.annotate('Cosmic ray {}'.format(row), (0.1, 0.9),

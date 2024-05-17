@@ -143,8 +143,10 @@ class fnrefs:
                 '''
                 with fits.open(fol_dir + file) as hdul:
                     data = hdul[0].data
-                    wcs = WCS(hdul[0].header)
+                    if (normalize): # executes when not False or some truthy value
+                        data = fnrefs.normalize(data)
                     
+                    wcs = WCS(hdul[0].header)
                     world_coords = wcs.pixel_to_world((data.shape[0], data.shape[1]), 0)
                     ccd = CCDData(data, unit=u.adu)
                     
@@ -152,9 +154,6 @@ class fnrefs:
                 
             combined_data = np.asarray( Combiner(image_data).median_combine() )
             combined_data = np.nan_to_num(combined_data, nan=0) # replaces NaN values with 0
-
-            if (normalize): # executes when not False or some truthy value
-                combined_data = fnrefs.normalize(combined_data)
 
             # if writeto is specified, will write the combined data to a new fits file
             if (writeto): # skips execution if writeto = False or some falsy value

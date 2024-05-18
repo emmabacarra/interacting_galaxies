@@ -1,3 +1,33 @@
+'''
+INTRODUCTION
+
+To use these functions, import the file (like packages!) and call the functions in the same manner
+NOTE: if importing the file from another folder, you may need to add the directory to the path.
+Always check your current directory to know where you are in the file system!
+
+1) if that's the case, you can follow this example (otherwise skip to step 3):
+
+        import os 
+        print(os.getcwd())
+
+2) if the file is in a different directory, you can add it to the path like this:
+        
+        os.sys.path.append('path/to/your/file')
+
+3) then you can import the file like this (exclude the .py part):
+   * if you skipped to this step, make sure to import the os package first
+
+        from funcrefs import fnrefs as rfs (or whatever you want to call it)
+        from funcrefs import convenience_functions as cf
+
+4) call functions from within this class like this: 
+
+        rfs.create_stack(insert parameters here)
+        cf.show_image(insert parameters here)
+
+'''
+
+# Packages Galore! -----------------------------------------------------------------------------------
 import os
 from re import search
 import numpy as np
@@ -14,9 +44,14 @@ from textwrap import wrap
 import astropy.units as u
 import warnings
 
-# My Functions -----------------------------------------------------------------------------------
+''' My Functions ----------------------------------------------------------------------------------- '''
 
 class fnrefs:
+    
+    # [please preserve the indentation in the next line]
+    ''' 
+FUNCTION 1) ------------------ MAPPING FITS FILES IN A GRIDLIKE PLOT ------------------
+    '''
     
     # this is useful for viewing multiple fits files in a grid (see show_iamge for single fits files)
     def map_fits(files, hdul_index, nrows, ncols, cmap, interpolation,
@@ -83,7 +118,12 @@ class fnrefs:
             plt.tight_layout(pad=0, h_pad=0.2, w_pad=0.2)
             plt.show()
 
-    # normalizing arrays
+
+
+    # [please preserve the indentation in the next line]
+    '''
+FUNCTION 2) ------------------ GENERIC NORMALIZING FUNCTION FOR ARRAYS ------------------
+    '''
     def normalize(arr, t_min=None, t_max=None):
         if t_min is None:
             t_min = np.amin(arr)
@@ -103,10 +143,28 @@ class fnrefs:
         return norm_arr
     
 
-    ''' ------------------ creating a stack of fits files ------------------
-    fol_dir: path of folder where files are located (string)
 
-    writeto: path name of the file to write the stack to (string)
+    # [please preserve the indentation in the next line]
+    '''
+FUNCTION 3) ------------------ CREATING A STACK OF FITS FILES (PLEASE READ) ------------------
+
+    ------------------------
+    Purpose of This Function
+    ------------------------
+
+    To stack multiple fits files into a single array. Default setting is to return the
+    combined data as an array, but the user can also save the data to a new fits file.
+
+    More comments on the function are provided at the end, but here is a brief overview:
+
+
+    ------------------------
+    About the Parameters
+    ------------------------
+
+    fol_dir: PATH of folder where files are located (type: string)
+
+    writeto: path name of the file to write the stack to (type: string)
     *As default, the combined data is returned as an array if writeto not specified*
     
     overwrite: if True, will overwrite the file if it already exists (bool)
@@ -118,16 +176,9 @@ class fnrefs:
 
     normalize: if True, will normalize the data
 
-    1. function will iterate through the files in the directory specified by fol_dir
-    2. if keyword is specified, will only include file names that contain the keyword
-    3. in each iteration, the function will open the file and extract the data and wcs
-    4. the function will then convert the pixel coordinates to world coordinates
-    5. the function will then append the ccd data to an array (outside of the loop)
-    6. the ccd data will be combined using Combiner from ccdproc and median_combine()
-    7. the combined data will be written to a new fits file specified by writeto
     '''
     def create_stack(fol_dir, writeto=False, overwrite=False, keyword=False, warn='ignore', normalize = False):
-        with warnings.catch_warnings():
+        with warnings.catch_warnings(): # this just suppesses warnings to make the output cleaner
             warnings.simplefilter(warn) # Hint: set to 'default' to see warnings
 
             image_data = []
@@ -143,7 +194,7 @@ class fnrefs:
                 '''
                 with fits.open(fol_dir + file) as hdul:
                     data = hdul[0].data
-                    if (normalize): # executes when not False or some truthy value
+                    if (normalize): # executes when not False (aka some truthy value)
                         data = fnrefs.normalize(data)
                     
                     wcs = WCS(hdul[0].header)
@@ -156,24 +207,80 @@ class fnrefs:
             combined_data = np.nan_to_num(combined_data, nan=0) # replaces NaN values with 0
 
             # if writeto is specified, will write the combined data to a new fits file
-            if (writeto): # skips execution if writeto = False or some falsy value
+            if (writeto): # skips execution if writeto = False (aka some falsy value)
                 fits.writeto(str(writeto), combined_data, overwrite=overwrite)
             else: return combined_data
+    '''
+    
+    ------------------------
+    A Walkthrough of the Steps
+    ------------------------
 
-    # old version
-    # def create_master(files, master_name):
-    #     stack = []
-    #     for file in files:
-    #         with fits.open(file) as hdul:
-    #             stack.append(hdul[0].data)
-    #     stack = np.dstack(stack)
-    #     mean = np.mean(stack, axis=2)
-    #     master = fits.PrimaryHDU(mean)
-    #     master.writeto(master_name, overwrite=True)
+    1. function will iterate through the files in the directory specified by fol_dir
+
+    2. if keyword is specified, will only include file names that contain the keyword
+
+    3. in each iteration, the function will open the file and extract the data and wcs
+
+    4. the function will then convert the pixel coordinates to world coordinates
+
+    5. the function will then append the ccd data to an array (outside of the loop)
+
+    6. the ccd data will be combined using Combiner from ccdproc and median_combine()
+
+    7. the combined data will be written to a new fits file specified by writeto
+
+
+    ------------------------
+    Additional Comments on This Function
+    ------------------------
+
+    - this function is designed to use the PATHING of a folder containing the files
+      to be combined, and puts the stacked data wherever the user specifies
+
+    - unlike the CCDProc package, this function takes advantage of the OS package,
+      which can offer more flexibility in terms of how files are located and combined
+
+    - this is designed to be flexible, allowing the user to specify a keyword as a
+      means to search for names of files in the folder containing a particular string
+
+    - to integrate the CCDProc package, the function uses the Combiner class to stack
+      files, rather than the combine() function, which, although nearly identical, seems
+      to be more intuitive to use in this context
+
+        - particularly, Combiner is a class (or group) of functions that can be used
+          with one another in a more human-readable way (just like this fnrefs class)
+
+        - the combine() function is a single function that requires several parameters
+          to be specified, and the only advantage is that you can set a limit on memory 
+          usage. however, the scope of this class shouldn't require heavy computing power
+
+    - to combine the data, the function uses the median_combine() method, which is an
+      alternative way to stack, rather than using sigma clipping or other methods
+
+        - median_combine() is a member of the Combiner class, and can be used to call
+          back on other members, to apply median combination to the data
+
+        - sigma clipping uses a different method to stack the data, which clips off the
+          outliers in the data (decided by the user) and stacks what's left
+
+        - sigma clipping can be useful for noisy data, but may also risk the chance of
+          losing valuable information, which is why median combination is used here
+
+    - if specified, the user can also choose to normalize the data BEFORE stacking them,
+      though the default value is set to False, as this may not always be necessary
+
+      - the normalizing function is another function I have made within the fnrefs class
+
+      - if the user wants to normalize the data AFTER stacking, they can do so by using
+        this function after the data has been combined and saved, or passing create_stack
+        as a parameter in the normalizing function to keep it to a single line of code
+    '''
+# END OF SECTION -----------------------------------------------------------------------------------
 
 
 
-# Convenience Functions given from Tuttle on canvas --------------------------------------------------
+'''Convenience Functions given from Tuttle on canvas --------------------------------------------------'''
 
 class convenience_functions: 
 

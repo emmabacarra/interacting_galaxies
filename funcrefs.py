@@ -181,7 +181,7 @@ FUNCTION 3) ------------------ CREATING A STACK OF FITS FILES (PLEASE READ) ----
         with warnings.catch_warnings(): # this just suppesses warnings to make the output cleaner
             warnings.simplefilter(warn) # Hint: set to 'default' to see warnings
 
-            image_data = []
+            image_data = [] # empty list to store the data from each file for combining later
 
             for file in [f for f in os.listdir(fol_dir) if ( (not keyword) or search(keyword, f) )]:
                 '''
@@ -197,7 +197,8 @@ FUNCTION 3) ------------------ CREATING A STACK OF FITS FILES (PLEASE READ) ----
                     if (normalize): # executes when not False (aka some truthy value)
                         data = fnrefs.normalize(data)
                     
-                    wcs = WCS(hdul[0].header)
+                    # converting the pixels to world coordinates since the objects aren't lined up
+                    wcs = WCS(hdul[0].header) 
                     world_coords = wcs.pixel_to_world((data.shape[0], data.shape[1]), 0)
                     ccd = CCDData(data, unit=u.adu)
                     
@@ -209,7 +210,7 @@ FUNCTION 3) ------------------ CREATING A STACK OF FITS FILES (PLEASE READ) ----
             # if writeto is specified, will write the combined data to a new fits file
             if (writeto): # skips execution if writeto = False (aka some falsy value)
                 fits.writeto(str(writeto), combined_data, overwrite=overwrite)
-            else: return combined_data
+            else: return combined_data # this is the default action 
     '''
     
     ------------------------

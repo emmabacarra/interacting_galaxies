@@ -174,7 +174,7 @@ FUNCTION 3) ------------------ CREATING A STACK OF FITS FILES (PLEASE READ) ----
 
     warn: defaulted to 'ignore' to suppress warnings (string)
 
-    normalize: if True, will normalize the data
+    normalize: if True, will normalize the data before stacking
 
     '''
     def create_stack(fol_dir, writeto=False, overwrite=False, keyword=False, warn='ignore', normalize = False):

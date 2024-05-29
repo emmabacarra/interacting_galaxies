@@ -281,6 +281,75 @@ FUNCTION 3) ------------------ CREATING A STACK OF FITS FILES (PLEASE READ) ----
 
 
 
+from photutils.detection import DAOStarFinder
+from photutils.aperture import CircularAperture, CircularAnnulus, aperture_photometry
+from astropy.stats import sigma_clipped_stats
+
+# class for photometry annulus, should be used AFTER background/sky subtraction
+class PhotAnnulus: 
+    def __init__(self, data): # just a way of declaring "local" class variables
+        self.data = data
+
+    def sigma_snip(self, xdim, ydim, sigma):
+        x_start, x_end = xdim
+        y_start, y_end = ydim
+
+        snippet = self.data[y_start:y_end, x_start:x_end]
+
+        mean, median, std = sigma_clipped_stats(snippet, sigma=sigma)
+        return mean, median, std
+
+    def sources(self, fwhm=4, threshold=5):
+        self.daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold)
+        self.sources = self.daofind(self.data)
+
+    def photometry(self):
+        positions = np.transpose((self.sources['xcentroid'], self.sources['ycentroid']))
+        self.apertures = CircularAperture(positions, r=self.aperture_radius)
+        self.annuli = CircularAnnulus(positions, r_in=self.annulus_in, r_out=self.annulus_out)
+        self.phot_table = aperture_photometry(self.data, self.apertures)
+        self.phot_table['annulus_sum'] = aperture_photometry(self.data, self.annuli)['aperture_sum']
+
+    def plot_sources(self, figsize=(16, 9), cmap='magma'):
+        plt.figure(figsize=figsize)
+        plt.imshow(self.data, cmap=cmap)
+        plt.colorbar(label='Counts')
+        plt.title('Detected Sources')
+        plt.scatter(self.sources['xcentroid'], self.sources['ycentroid'], s=100, marker='x', color='red')
+        plt.xlabel('X')
+        plt.ylabel('Y')
+        plt.show()
+
+    def plot_annuli(self, figsize=(16, 9), cmap='magma', custom=None):
+        if custom is None:
+            custom = vis.ImageNormalize(self.data, interval=vis.ZScaleInterval(), stretch=vis.SqrtStretch())
+        plt.figure(figsize=figsize)
+        plt.imshow(self.data, cmap=cmap, norm=custom)
+        plt.colorbar(label='Counts')
+        self.annuli.plot(color='blue', lw=1.5, alpha=0.5)
+        plt.title('Annuli')
+        plt.xlabel('X')
+        plt.ylabel('Y')
+        plt.show()
+
+    def calculate_magnitudes(self):
+        annuli_areas = self.apertures.area_overlap(self.annuli)
+        median, _, _ = sigma_clipped_stats(self.data)
+        annulus_total_bkg = median * annuli_areas
+        self.phot_table['annu_total_bkg'] = annulus_total_bkg
+        self.phot_table['annuli_sum_bkgsub'] = self.phot_table['annulus_sum'] - annulus_total_bkg
+
+        print("Photometry Results:")
+        print(self.phot_table)
+
+        for source_id in self.sources['id']:
+            source_row = self.sources[self.sources['id'] == source_id]
+            x, y = np.round(source_row['xcentroid'][0], 2), np.round(source_row['ycentroid'][0], 2)
+            phot_row = self.phot_table[(np.round(self.phot_table['xcenter'].value, 2) == x) & (np.round(self.phot_table['ycenter'].value, 2) == y)]
+            print(f"[ID {source_id}] Magnitude: {phot_row['annuli_sum_bkgsub'][0]:.2f}")
+
+
+
 '''Convenience Functions given from Tuttle on canvas --------------------------------------------------'''
 
 class convenience_functions: 

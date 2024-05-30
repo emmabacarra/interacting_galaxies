@@ -44,6 +44,17 @@ from textwrap import wrap
 import astropy.units as u
 import warnings
 
+''' Custom Colormap ----------------------------------------------------------------------------- '''
+# https://xkcd.com/color/rgb/
+
+from matplotlib.colors import LinearSegmentedColormap
+colors = ["black", "xkcd:very dark purple", 
+          "xkcd:cornflower", "xkcd:light blue grey", 
+          "xkcd:light khaki", "xkcd:dandelion"]
+custom_colormap = LinearSegmentedColormap.from_list("custom", colors, N=256)
+
+
+
 ''' My Functions ----------------------------------------------------------------------------------- '''
 
 class fnrefs:
@@ -282,71 +293,207 @@ FUNCTION 3) ------------------ CREATING A STACK OF FITS FILES (PLEASE READ) ----
 
 
 from photutils.detection import DAOStarFinder
-from photutils.aperture import CircularAperture, CircularAnnulus, aperture_photometry
-from astropy.stats import sigma_clipped_stats
+from photutils.aperture import CircularAnnulus, aperture_photometry, ApertureStats
+from astropy.stats import sigma_clipped_stats, SigmaClip
+from matplotlib.patches import Rectangle
+from matplotlib.colors import rgb2hex
+import photutils as pu
 
 # class for photometry annulus, should be used AFTER background/sky subtraction
 class PhotAnnulus: 
-    def __init__(self, data): # just a way of declaring "local" class variables
+    def __init__(self, data):
+        '''
+        just a way of declaring variables local to entire class, can be used in multiple
+        functions within the class without having to redefine them each time. referred to
+        by using self.[variable name]
+
+        otherwise, if you don't use self, the variable will only be local to the function
+
+        __init__ is like a list of variables that are used within the class, and the 
+        functions defined later are the actions that can be taken with those variables.
+        to use self variables later, add self as the first parameter of a function
+        '''
         self.data = data
+        self.snippet = None
+        self.x_start = None
+        self.x_end = None
+        self.y_start = None
+        self.y_end = None
+        
+        # initial skeleton variables, will be defined later when used
+        self.norm = None
+        self.mean = None
+        self.median = None
+        self.std = None
 
-    def sigma_snip(self, xdim, ydim, sigma):
-        x_start, x_end = xdim
-        y_start, y_end = ydim
+        self.srcs = None
+        self.finder = None
+        self.positions = None
+        self.annuli = None
+        self.an_areas = None
+        self.an_stats = None
+        self.r_in = None
+        self.r_out = None
+        self.phot_table = None
 
-        snippet = self.data[y_start:y_end, x_start:x_end]
+        self.vmin = None
+        self.vmax = None
+        self.percentile = 1 # these can't be None values, so defaulting to 1
+        self.power = 1
+        self.contrast = None
+        self.bias = None
 
-        mean, median, std = sigma_clipped_stats(snippet, sigma=sigma)
-        return mean, median, std
+        # dictionary for easier use later
+        self.intervals = {'ZScale': vis.ZScaleInterval(),
+                        'MinMax': vis.MinMaxInterval(),
+                        'Percentile': vis.PercentileInterval(self.percentile),
+                        'AsymPercentile': vis.AsymmetricPercentileInterval(self.vmin, self.vmax),
+                        'Manual': vis.ManualInterval(vmin=self.vmin, vmax=self.vmax)}
+            
+        self.stretches = {'Linear': vis.LinearStretch(),
+                        'Asinh': vis.AsinhStretch(),
+                        'Log': vis.LogStretch(),
+                        'Sqrt': vis.SqrtStretch(),
+                        'Hist' : vis.HistEqStretch(self.data),
+                        'Power': vis.PowerStretch(self.power),
+                        'Sinh': vis.SinhStretch(),
+                        'Contrast': vis.ContrastBiasStretch(contrast=self.contrast, bias=self.bias)}
+        
+    # -----------------------------------------------------------------------------------
+    def normalizer(self, interval='ZScale', stretch='Sqrt', pmin=1, pmax=99.75):
+        # setting class-wide variable to the values passed
+        self.vmin, self.vmax = np.percentile(self.data, [pmin, pmax])
 
-    def sources(self, fwhm=4, threshold=5):
-        self.daofind = DAOStarFinder(fwhm=fwhm, threshold=threshold)
-        self.sources = self.daofind(self.data)
+        self.norm = vis.ImageNormalize(self.data, vmin=self.vmin, vmax=self.vmax, 
+                                       interval=self.intervals[interval], 
+                                       stretch=self.stretches[stretch])
+        # returning for outside access during use, not for within class
+        return self.norm
 
-    def photometry(self):
-        positions = np.transpose((self.sources['xcentroid'], self.sources['ycentroid']))
-        self.apertures = CircularAperture(positions, r=self.aperture_radius)
-        self.annuli = CircularAnnulus(positions, r_in=self.annulus_in, r_out=self.annulus_out)
-        self.phot_table = aperture_photometry(self.data, self.apertures)
-        self.phot_table['annulus_sum'] = aperture_photometry(self.data, self.annuli)['aperture_sum']
+    # -----------------------------------------------------------------------------------
+    '''
+    get full photometry table here. manually remove bad sources later
+    '''
+    def sources(self, xdim, ydim, sigma, fwhm=4, threshold=5, r_in=10, r_out=20):
+        '''
+        Creating Snippet
+        '''
+        self.x_start, self.x_end = xdim
+        self.y_start, self.y_end = ydim
+        print(f"Snippet Resolution:  {self.x_end - self.x_start} x {self.y_end - self.y_start} px")
 
-    def plot_sources(self, figsize=(16, 9), cmap='magma'):
-        plt.figure(figsize=figsize)
-        plt.imshow(self.data, cmap=cmap)
-        plt.colorbar(label='Counts')
-        plt.title('Detected Sources')
-        plt.scatter(self.sources['xcentroid'], self.sources['ycentroid'], s=100, marker='x', color='red')
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.show()
+        self.snippet = self.data[self.y_start:self.y_end, self.x_start:self.x_end]
+        self.mean, self.median, self.std = sigma_clipped_stats(self.snippet, sigma=sigma)
 
-    def plot_annuli(self, figsize=(16, 9), cmap='magma', custom=None):
-        if custom is None:
-            custom = vis.ImageNormalize(self.data, interval=vis.ZScaleInterval(), stretch=vis.SqrtStretch())
-        plt.figure(figsize=figsize)
-        plt.imshow(self.data, cmap=cmap, norm=custom)
-        plt.colorbar(label='Counts')
-        self.annuli.plot(color='blue', lw=1.5, alpha=0.5)
-        plt.title('Annuli')
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.show()
+        '''
+        Finding Sources
+        '''
+        self.finder = DAOStarFinder(fwhm=fwhm, threshold=threshold*self.std)
+        self.srcs = self.finder(self.snippet - self.median)
 
-    def calculate_magnitudes(self):
-        annuli_areas = self.apertures.area_overlap(self.annuli)
-        median, _, _ = sigma_clipped_stats(self.data)
-        annulus_total_bkg = median * annuli_areas
-        self.phot_table['annu_total_bkg'] = annulus_total_bkg
-        self.phot_table['annuli_sum_bkgsub'] = self.phot_table['annulus_sum'] - annulus_total_bkg
+        for col in self.srcs.colnames:  
+            if col not in ('id', 'xcentroid', 'ycentroid'):
+                self.srcs[col].format = '%.2f'  # for consistent table output
 
-        print("Photometry Results:")
-        print(self.phot_table)
+        # print(f"Sources Found: {len(self.srcs)}") # can also print this outside function
+        
+        '''
+        Photometry Part 1
+        '''
+        self.positions = np.transpose((self.srcs['xcentroid'], self.srcs['ycentroid']))
+        self.r_in, self.r_out = r_in, r_out
+        self.annuli = CircularAnnulus(self.positions, r_in=r_in, r_out=r_out)
+        self.phot_table = aperture_photometry(self.data, self.annuli)
 
-        for source_id in self.sources['id']:
-            source_row = self.sources[self.sources['id'] == source_id]
+        # returning for outside access during use, not for within class
+        return self.snippet, self.srcs
+
+    # -----------------------------------------------------------------------------------
+    '''
+    manually remove bad sources before passing to this function as phot_table
+    this function will outline snippet on original image and display annuli sources
+
+    recommended to use with normalizer function defined above
+    '''
+    def view_sources(self, srcs, norm, figsize=(16, 9), cmap='magma', mcolor='xkcd:wine', interpolation='hermite', nightmode=True):
+        warnings.simplefilter('ignore') # booo warnings
+
+        # updating sources and others for the rest of the class
+        self.srcs = srcs
+        self.positions = np.transpose((self.srcs['xcentroid'], self.srcs['ycentroid']))
+        self.annuli = CircularAnnulus(self.positions, r_in=self.r_in, r_out=self.r_out)
+        self.phot_table = aperture_photometry(self.data, self.annuli)
+        
+        # flashbangs?!?!
+        with plt.style.context('dark_background' if nightmode else 'default'):
+            plt.figure(figsize=figsize)
+
+            # ignore this part idk why she's not workinggg
+
+            # Compute the contrast color (mcolor) for annotations to stand out
+            # colormap = plt.get_cmap(cmap)
+            # avg_color = colormap(np.mean([self.vmin, self.vmax]))
+            # mcolor = tuple(1 - x for x in avg_color[:3])  # convert to RGB components, ignore the alpha (opacity) channel
+            # mcolor = rgb2hex(mcolor)
+            
+            # plotting image and marking the snippet -----------------------------------------
+            plt.subplot(1, 2, 1)
+            plt.title(f'Snippet of Image', weight='bold')
+            plt.xlabel(f'Snip Resolution: {self.snippet.shape[0]} x {self.snippet.shape[1]} px      Sources found: {len(self.srcs)}')
+            
+            width = self.x_end - self.x_start
+            height = self.y_end - self.y_start
+            # extent = [self.x_start, self.x_start + width, self.y_start, self.y_start + height]
+            border = Rectangle((self.x_start, self.y_start), width, height, edgecolor=mcolor, facecolor='none', lw=1.5)
+
+            plt.imshow(self.data, cmap=cmap, norm=norm, interpolation=interpolation)
+            plt.gca().add_patch(border) # adding outline of snippet
+
+            # plotting annului --------------------------------------------------------------
+            plt.subplot(1, 2, 2)
+            plt.title(f'Annuli Sources', weight='bold')
+
+            plt.imshow(self.snippet, cmap=cmap, origin='lower', norm=norm, interpolation=interpolation)
+            self.annuli.plot(color=mcolor, lw=1.5, alpha=0.5)
+
+            # annotating the annuli with their corresponding source id number
+            for i, (x, y) in enumerate(zip(self.srcs['xcentroid'], self.srcs['ycentroid'])):
+                plt.text(x, y, f"{self.srcs['id'][i]}", color=mcolor, fontsize=12, ha='center', va='center')
+
+
+            plt.setp(plt.gcf().get_axes(), xticks=[], yticks=[]) # hide that shi
+            plt.tight_layout()
+            plt.show()
+
+
+    # -----------------------------------------------------------------------------------
+    def magnitudes(self, ids, sigma=3.0, maxiters=10):
+        
+        self.an_areas = pu.aperture.PixelAperture.area_overlap(self.annuli, self.data)
+        self.an_stats = ApertureStats(self.data, self.annuli, sigma_clip=SigmaClip(sigma=sigma, maxiters=maxiters))
+
+        # total background within the annulus
+        self.phot_table['total_bkg'] = self.an_stats.median * self.an_areas
+
+        # background-subtracted photometry
+        self.phot_table['bkgsub'] = self.phot_table['aperture_sum'] - self.phot_table['total_bkg']
+
+        for col in self.phot_table.colnames:  
+            if col not in ('id'):
+                self.phot_table[col].format = '%.2f'  # for consistent table output
+
+        self.phot_table['id'] = self.srcs['id']
+
+        magnitudes = []
+        for source_id in ids:
+            source_row = self.srcs[self.srcs['id'] == source_id]
             x, y = np.round(source_row['xcentroid'][0], 2), np.round(source_row['ycentroid'][0], 2)
             phot_row = self.phot_table[(np.round(self.phot_table['xcenter'].value, 2) == x) & (np.round(self.phot_table['ycenter'].value, 2) == y)]
-            print(f"[ID {source_id}] Magnitude: {phot_row['annuli_sum_bkgsub'][0]:.2f}")
+
+            # print(f"[ID {source_id}] Magnitude: {phot_row['bkgsub'][0]:.2f}")
+            magnitudes.append([source_id, phot_row['bkgsub'][0]])
+
+        return magnitudes, self.phot_table
 
 
 

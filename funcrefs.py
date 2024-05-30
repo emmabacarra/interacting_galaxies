@@ -412,13 +412,14 @@ class PhotAnnulus:
     '''
     manually remove bad sources before passing to this function as phot_table
     this function will outline snippet on original image and display annuli sources
+    (also see next function after this)
 
     recommended to use with normalizer function defined above
     '''
     def view_sources(self, srcs, norm, figsize=(16, 9), cmap='magma', mcolor='xkcd:wine', interpolation='hermite', nightmode=True):
         warnings.simplefilter('ignore') # booo warnings
 
-        # updating sources and others for the rest of the class
+        # updating with revised sources and others for the rest of the class
         self.srcs = srcs
         self.positions = np.transpose((self.srcs['xcentroid'], self.srcs['ycentroid']))
         self.annuli = CircularAnnulus(self.positions, r_in=self.r_in, r_out=self.r_out)
@@ -464,6 +465,22 @@ class PhotAnnulus:
             plt.setp(plt.gcf().get_axes(), xticks=[], yticks=[]) # hide that shi
             plt.tight_layout()
             plt.show()
+    # -----------------------------------------------------------------------------------
+    ''' OPTIONAL
+
+    like view_sources, but without the plotting to revise the sources list and do nothing else afterwards.
+    this is to make sure the local class variables are updated with the revised sources list
+
+    option for if you want to manually remove bad sources from the list but want to suppress plots.
+
+    can skip if no sources are manually removed 
+    '''
+    def revise(self, srcs):
+        # updating with revised sources and others for the rest of the class
+        self.srcs = srcs
+        self.positions = np.transpose((self.srcs['xcentroid'], self.srcs['ycentroid']))
+        self.annuli = CircularAnnulus(self.positions, r_in=self.r_in, r_out=self.r_out)
+        self.phot_table = aperture_photometry(self.data, self.annuli)
 
 
     # -----------------------------------------------------------------------------------
